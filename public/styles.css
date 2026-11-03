@@ -106,6 +106,8 @@ body {
 .rank-item:last-child { border-bottom: none; }
 .rank-item.is-me { background: linear-gradient(90deg, #f0f4ff, #fff); border-left: 4px solid var(--primary); }
 .me-badge { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 800; color: #fff; background: var(--primary); padding: 2px 7px; border-radius: 10px; vertical-align: middle; }
+.btn-boost { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; padding: 3px 10px; font-size: 11px; font-weight: 700; color: #fff; background: var(--primary); border: none; border-radius: 6px; cursor: pointer; transition: opacity .2s; white-space: nowrap; }
+.btn-boost:hover { opacity: .85; }
 .rank-no { font-size: 18px; font-weight: 800; color: var(--muted); min-width: 38px; text-align: center; }
 .rank-info { flex: 1; min-width: 0; }
 .rank-name { font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

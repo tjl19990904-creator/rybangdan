@@ -8,6 +8,7 @@ import {
   createPayment, getPayment, getPaymentBySession, getPaymentByProviderRef, markPaymentPaid,
   listPayments, updatePayment, deletePayment, getLeaderboard, confirmPaymentManual,
   createWithdrawal, listWithdrawals, updateWithdrawal, getStats, nowISO, seedDemoData,
+  checkRateLimit, getPaymentHistoryByName,
 } from './lib/db.js';
 import { providerNames, getProvider, providerConfigDetail, getProviderStatus } from './lib/providers/index.js';
 import { verifyPassword, createToken, verifyToken } from './lib/auth.js';
@@ -87,6 +88,17 @@ function isValidAmount(amount) {
   if (!Number.isInteger(cents) || cents < 1) return false;
   if (cents > 1_000_000_000) return false;
   return true;
+}
+
+// 获取客户端真实 IP（支持 Cloudflare / Render 反向代理）
+function getClientIP(req) {
+  const cfIP = req.headers['cf-connecting-ip'];
+  if (cfIP) return cfIP;
+  const xfwd = req.headers['x-forwarded-for'];
+  if (xfwd) return xfwd.split(',')[0].trim();
+  const realIP = req.headers['x-real-ip'];
+  if (realIP) return realIP;
+  return req.socket?.remoteAddress || null;
 }
 
 const MIME = {
@@ -224,6 +236,14 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { found: true, total, rank: me.rank, me, around });
     }
 
+    // 查询用户支付历史（排名刷新记录）
+    if (method === 'GET' && pathname === '/api/payment-history') {
+      const name = url.searchParams.get('name');
+      if (!name) return sendError(res, 400, '请提供姓名');
+      const history = getPaymentHistoryByName(name.trim());
+      return sendJson(res, { name: name.trim(), history });
+    }
+
     // 创建支付
     if (method === 'POST' && pathname === '/api/checkout') {
       const body = await readJson(req);
@@ -235,20 +255,36 @@ const server = http.createServer(async (req, res) => {
       if (amount < MIN_AMOUNT) return sendError(res, 400, `最低上榜金额为 ${CURRENCY_SYMBOL}${MIN_AMOUNT}`);
       const amountCents = Math.round(amount * 100);
 
+      // 获取客户端 IP 并进行防刷校验
+      const clientIP = getClientIP(req);
+      const rateCheck = checkRateLimit(clientIP, amountCents, 3);
+      if (!rateCheck.allowed) {
+        return sendError(res, 429, `操作过于频繁，相同金额请在 ${rateCheck.windowMinutes} 分钟后重试`);
+      }
+
       const mod = getProvider(providerId);
       if (!mod) return sendError(res, 400, '支付方式不存在');
       const cfg = mod.getConfig();
 
+      // 查询当前排名（用于支付后比较排名变化）
+      const beforeBoard = getLeaderboard();
+      const beforeRank = beforeBoard.findIndex(r => r.name === name.trim());
+      const beforeData = beforeRank >= 0 ? { rank: beforeBoard[beforeRank].rank, total: beforeBoard[beforeRank].total_cents } : null;
+
       // 未配置真实密钥时：若 DEMO_AUTO_PAY=true 直接上榜；否则返回 manual 说明
       if (!cfg.envReady) {
         if (DEMO_AUTO_PAY) {
-          const payment = createPayment({ name, amountCents, currency: CURRENCY, provider: providerId, providerRef: `demo-${Date.now()}`, status: 'paid', paidAt: nowISO() });
+          const payment = createPayment({ name, amountCents, currency: CURRENCY, provider: providerId, providerRef: `demo-${Date.now()}`, ipAddress: clientIP, status: 'paid', paidAt: nowISO() });
           pushLeaderboard(); pushAdmin();
-          return sendJson(res, { mode: 'demo', provider: providerId, payment });
+          // 计算支付后排名变化
+          const afterBoard = getLeaderboard();
+          const afterIdx = afterBoard.findIndex(r => r.name === name.trim());
+          const afterData = afterIdx >= 0 ? { rank: afterBoard[afterIdx].rank, total: afterBoard[afterIdx].total_cents } : null;
+          return sendJson(res, { mode: 'demo', provider: providerId, payment, beforeRank: beforeData, afterRank: afterData });
         }
         // 返回该方式的默认 manual 说明
         const manual = await mod.createCheckout({ name, amountCents, currency: CURRENCY });
-        return sendJson(res, { mode: 'manual', provider: providerId, ...manual });
+        return sendJson(res, { mode: 'manual', provider: providerId, ...manual, beforeRank: beforeData });
       }
 
       try {
@@ -265,20 +301,23 @@ const server = http.createServer(async (req, res) => {
 
         // redirect 模式创建 pending 记录
         if (result.mode === 'redirect') {
-          createPayment({ name, amountCents, currency: CURRENCY, provider: providerId, providerRef: result.providerRef, providerMeta: result.raw, status: 'pending' });
-          return sendJson(res, { mode: 'redirect', provider: providerId, url: result.url, providerRef: result.providerRef });
+          createPayment({ name, amountCents, currency: CURRENCY, provider: providerId, providerRef: result.providerRef, providerMeta: result.raw, ipAddress: clientIP, status: 'pending' });
+          return sendJson(res, { mode: 'redirect', provider: providerId, url: result.url, providerRef: result.providerRef, beforeRank: beforeData });
         }
 
         // manual 模式创建 pending 记录
-        const payment = createPayment({ name, amountCents, currency: CURRENCY, provider: providerId, providerRef: result.providerRef, providerMeta: result.raw, status: 'pending' });
-        return sendJson(res, { mode: 'manual', provider: providerId, instructions: result.instructions, providerRef: result.providerRef, payment });
+        const payment = createPayment({ name, amountCents, currency: CURRENCY, provider: providerId, providerRef: result.providerRef, providerMeta: result.raw, ipAddress: clientIP, status: 'pending' });
+        return sendJson(res, { mode: 'manual', provider: providerId, instructions: result.instructions, providerRef: result.providerRef, payment, beforeRank: beforeData });
       } catch (e) {
         // 真实 API 失败且允许 demo fallback 时，回退到 demo 直接上榜
         if (cfg.demoFallback && DEMO_AUTO_PAY) {
           console.error(`[checkout ${providerId}] API 失败，回退 demo:`, e.message);
-          const payment = createPayment({ name, amountCents, currency: CURRENCY, provider: providerId, providerRef: `demo-${Date.now()}`, status: 'paid', paidAt: nowISO(), note: `API 回退: ${e.message}` });
+          const payment = createPayment({ name, amountCents, currency: CURRENCY, provider: providerId, providerRef: `demo-${Date.now()}`, ipAddress: clientIP, status: 'paid', paidAt: nowISO(), note: `API 回退: ${e.message}` });
           pushLeaderboard(); pushAdmin();
-          return sendJson(res, { mode: 'demo', provider: providerId, fallbackReason: e.message, payment });
+          const afterBoard = getLeaderboard();
+          const afterIdx = afterBoard.findIndex(r => r.name === name.trim());
+          const afterData = afterIdx >= 0 ? { rank: afterBoard[afterIdx].rank, total: afterBoard[afterIdx].total_cents } : null;
+          return sendJson(res, { mode: 'demo', provider: providerId, fallbackReason: e.message, payment, beforeRank: beforeData, afterRank: afterData });
         }
         return sendError(res, 502, `支付创建失败: ${e.message}`);
       }

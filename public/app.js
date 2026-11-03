@@ -66,6 +66,7 @@ function render() {
     const flashCls = isNew ? 'flash' : '';
     const isMe = state.myName && r.name === state.myName;
     const sub = r.payments > 1 ? `${r.payments} payments · total` : 'First entry';
+    const boostBtn = isMe ? ` <button class="btn-boost" onclick="document.getElementById('payBtn').click()">↑ Boost</button>` : '';
     return `
       <li class="rank-item ${flashCls} ${isMe ? 'is-me' : ''}">
         <div class="rank-no">${r.rank}</div>
@@ -73,7 +74,7 @@ function render() {
           <div class="rank-name">${escapeHtml(r.name)} ${isMe ? '<span class="me-badge">You</span>' : ''}</div>
           <div class="rank-sub">${sub}</div>
         </div>
-        <div class="rank-amount">${formatMoney(r.total_cents)}</div>
+        <div class="rank-amount">${formatMoney(r.total_cents)}${boostBtn}</div>
       </li>
     `;
   }).join('');
@@ -266,7 +267,19 @@ function bindModal() {
       modal.hidden = true;
       resetPayForm();
       state.myName = name; localStorage.setItem('myRankName', name);
-      showToast(`🎉 ${name} is on the board!`);
+      // 排名变化提示
+      let rankMsg = `🎉 ${name} is on the board!`;
+      if (data.beforeRank && data.afterRank) {
+        const change = data.beforeRank.rank - data.afterRank.rank;
+        if (change > 0) {
+          rankMsg = `🎉 ${name} moved up ${change} spot${change > 1 ? 's' : ''}! Now ranked #${data.afterRank.rank}`;
+        } else if (change === 0) {
+          rankMsg = `🎉 ${name} boosted the total! Still ranked #${data.afterRank.rank}`;
+        } else {
+          rankMsg = `🎉 ${name} is on the board at #${data.afterRank.rank}`;
+        }
+      }
+      showToast(rankMsg);
       loadLeaderboard();
     } catch (err) {
       noteEl.textContent = '⚠️ ' + err.message;
