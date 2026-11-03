@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Successful · Paid Ranking</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏆</text></svg>" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="wrap">
+    <div class="success-card">
+      <div class="success-icon">✅</div>
+      <h2 id="successTitle">Payment Successful!</h2>
+      <p id="successMsg" class="modal-sub">Thank you for joining the board. Your ranking has been updated in real time.</p>
+      <div id="successInfo" class="success-info" hidden></div>
+      <a href="/" class="btn btn-primary btn-lg">Back to Leaderboard</a>
+    </div>
+  </main>
+  <script>
+    (async () => {
+      const sid = new URLSearchParams(location.search).get('session_id');
+      const ref = new URLSearchParams(location.search).get('ref');
+      const provider = new URLSearchParams(location.search).get('provider') || 'stripe';
+      const info = document.getElementById('successInfo');
+      const msg = document.getElementById('successMsg');
+      const checkRef = ref || sid;
+      if (checkRef) {
+        try {
+          const res = await fetch('/api/verify?provider=' + encodeURIComponent(provider) + '&ref=' + encodeURIComponent(checkRef));
+          const data = await res.json();
+          if (data.ok && data.paid) {
+            msg.textContent = data.name
+              ? `Thank you, ${data.name}! You are on the board. Your ranking has been updated in real time.`
+              : 'Thank you for joining the board. Your ranking has been updated in real time.';
+          } else if (data.ok && !data.paid) {
+            msg.textContent = 'Your payment is being confirmed. The leaderboard will update once payment is verified.';
+          }
+        } catch (e) {
+          msg.textContent = 'Your payment has been submitted. The leaderboard will update shortly.';
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

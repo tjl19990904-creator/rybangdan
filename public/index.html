@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leaderboard · Paid Ranking</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏆</text></svg>" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <div class="brand">
+        <span class="logo">🏆</span>
+        <div class="brand-text">
+          <h1 id="siteName">Leaderboard</h1>
+          <p class="tagline">Pay More · Rank Higher</p>
+        </div>
+      </div>
+      <button id="payBtn" class="btn btn-primary btn-lg">
+        <span>🚀</span> Get on the Board
+      </button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="leaderboard">
+      <div class="lb-head">
+        <h2>Live Leaderboard</h2>
+        <div class="lb-meta">
+          <span id="entryCount" class="chip">— entries</span>
+          <span id="liveDot" class="live"><i></i> Live</span>
+        </div>
+      </div>
+
+      <!-- My Rank -->
+      <div id="myRankPanel" class="my-rank" hidden>
+        <div class="my-rank-main">
+          <div>
+            <div class="my-rank-label">My Rank</div>
+            <div class="my-rank-name" id="myRankName">—</div>
+          </div>
+          <div class="my-rank-nums">
+            <div><span id="myRankNo">—</span><small>rank</small></div>
+            <div><span id="myRankAmount">—</span></div>
+          </div>
+        </div>
+        <ol id="myRankAround" class="rank-list my-rank-list"></ol>
+      </div>
+
+      <!-- Find my rank -->
+      <div class="find-rank-bar">
+        <input id="findName" type="text" placeholder="Enter your name to find your rank" maxlength="60" />
+        <button id="findBtn" class="btn btn-primary">Find</button>
+        <button id="clearFindBtn" class="btn btn-ghost" hidden>Clear</button>
+      </div>
+
+      <!-- Top 3 podium -->
+      <div id="podium" class="podium"></div>
+
+      <!-- Rank list (4-100) -->
+      <ol id="rankList" class="rank-list"></ol>
+
+      <div id="emptyState" class="empty-state" hidden>
+        <div class="empty-icon">🎖️</div>
+        <h3>The Board Awaits</h3>
+        <p>Be the first to claim the top spot!</p>
+        <button class="btn btn-primary" onclick="document.getElementById('payBtn').click()">Get on the Board</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Payment modal -->
+  <div id="payModal" class="modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close>×</button>
+      <h2>Pay to Rank</h2>
+      <p class="modal-sub">Enter your name and complete payment to join the leaderboard. The higher your payment, the higher your rank.</p>
+      <form id="payForm" class="pay-form">
+        <label class="field">
+          <span>Name</span>
+          <input id="payName" type="text" maxlength="60" placeholder="e.g. Acme Inc." autocomplete="off" required />
+        </label>
+        <label class="field">
+          <span>Payment Method</span>
+          <select id="payProvider" style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;font-size:15px;font-family:inherit;background:#fff;">
+            <option value="" disabled selected>Select a payment method</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Amount <small id="curHint">(USD)</small></span>
+          <div class="amount-input">
+            <span id="curSymbol" class="cur-symbol">$</span>
+            <input id="payAmount" type="number" min="1" step="0.01" placeholder="Higher amount = higher rank" required />
+          </div>
+        </label>
+        <div class="quick-amounts" id="quickAmounts"></div>
+
+        <!-- Manual / crypto instructions & reference -->
+        <div id="manualBox" class="manual-box" hidden>
+          <div id="manualInstructions" class="manual-instructions"></div>
+          <label class="field">
+            <span id="refLabel">Transaction Hash / Reference</span>
+            <input id="manualRef" type="text" placeholder="Fill in after payment" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>Note</span>
+            <input id="manualNote" type="text" placeholder="Optional: contact, time, etc." autocomplete="off" />
+          </label>
+        </div>
+
+        <div id="payNote" class="pay-note"></div>
+        <button id="paySubmit" type="submit" class="btn btn-primary btn-block btn-lg">
+          Confirm Payment
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>Powered by Paid Ranking · Secure Payments</p>
+    </div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

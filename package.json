@@ -1,0 +1,15 @@
+{
+  "name": "paid-ranking",
+  "version": "1.0.0",
+  "description": "付费排名展示网站：实时榜单 + Stripe 支付 + 后台管理（零依赖，Node 内置 SQLite）",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "license": "MIT"
+}

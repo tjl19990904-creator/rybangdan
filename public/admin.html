@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>后台管理 · 荣耀榜单</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <!-- 登录页 -->
+  <div id="loginView" class="admin-login">
+    <div class="lock-icon">🔐</div>
+    <h2>后台管理</h2>
+    <p>请输入管理员密码以登录</p>
+    <form id="loginForm" class="pay-form">
+      <input id="loginPwd" type="password" placeholder="管理员密码" autocomplete="current-password" required style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;font-size:15px;font-family:inherit;text-align:center;" />
+      <div id="loginError" class="pay-note" style="color:var(--danger);text-align:center;"></div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg">登录</button>
+    </form>
+    <p style="margin-top:18px;font-size:12px;color:var(--muted);">默认密码见 .env 中 ADMIN_PASSWORD</p>
+  </div>
+
+  <!-- 管理界面 -->
+  <div id="adminView" hidden>
+    <div class="admin-bar">
+      <div class="wrap admin-bar-inner">
+        <div class="brand-mini"><span>🏆</span> 荣耀榜单 · 后台</div>
+        <div style="display:flex;gap:10px;">
+          <a href="/" class="btn btn-primary btn-sm">查看榜单</a>
+          <button id="logoutBtn" class="btn btn-ghost btn-sm" style="color:#fff;border-color:rgba(255,255,255,.3);">退出登录</button>
+        </div>
+      </div>
+    </div>
+
+    <main class="wrap" style="padding-top:24px;">
+      <!-- 财务统计 -->
+      <div id="statsGrid" class="stats-grid"></div>
+
+      <!-- 支付记录 -->
+      <div class="panel">
+        <div class="panel-head">
+          <h3>支付记录</h3>
+          <div class="tools">
+            <select id="filterStatus">
+              <option value="all">全部状态</option>
+              <option value="paid">已支付</option>
+              <option value="pending">待支付</option>
+              <option value="refunded">已退款</option>
+            </select>
+            <select id="filterProvider">
+              <option value="all">全部方式</option>
+            </select>
+            <input id="searchInput" type="search" placeholder="搜索姓名/备注/订单号" />
+            <button id="refreshBtn" class="btn btn-ghost btn-sm">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>姓名</th><th>金额</th><th>方式</th><th>状态</th><th>时间</th><th>参考号</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="paymentsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 支付通道接入配置 -->
+      <div class="panel">
+        <div class="panel-head">
+          <h3>支付通道接入配置</h3>
+          <button id="refreshProvidersBtn" class="btn btn-ghost btn-sm">刷新</button>
+        </div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+          以下展示所有已注册支付方式的接入状态。密钥类配置请在项目根目录 <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:ui-monospace,monospace;font-size:12px;">.env</code> 文件中设置后重启服务生效。Webhook 回调地址需在各支付平台后台配置。
+        </p>
+        <div id="providersGrid" class="providers-grid"></div>
+      </div>
+
+      <!-- 榜单管理（聚合视图） -->
+      <div class="panel">
+        <div class="panel-head">
+          <h3>榜单数据（按用户聚合）</h3>
+          <span id="lbCount" class="chip"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>排名</th><th>姓名</th><th>累计金额</th><th>支付次数</th><th>最近上榜</th></tr>
+            </thead>
+            <tbody id="lbBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 提款管理 -->
+      <div class="panel">
+        <div class="panel-head">
+          <h3>提款管理</h3>
+        </div>
+        <form id="withdrawForm" class="form-row" style="margin-bottom:18px;">
+          <label class="field"><span>提款金额</span><input id="wAmount" type="number" min="0.01" step="0.01" placeholder="金额" required /></label>
+          <label class="field"><span>方式</span><input id="wMethod" type="text" placeholder="如：银行转账/Stripe Payout" /></label>
+          <label class="field" style="flex:2;"><span>备注</span><input id="wNote" type="text" placeholder="备注（可选）" /></label>
+          <button type="submit" class="btn btn-primary">记录提款</button>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>金额</th><th>方式</th><th>状态</th><th>申请时间</th><th>处理时间</th><th>操作</th></tr>
+            </thead>
+            <tbody id="withdrawalsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <p style="color:var(--muted);font-size:13px;margin-bottom:40px;">
+        💡 提示：Stripe / PayPal / Airwallex 已做自动回调；USDT、支付宝、微信、银行卡等手动方式需在后台「确认支付」后上榜。真实国内支付接入需补充对应商户资质与 SDK。
+      </p>
+    </main>
+  </div>
+
+  <!-- 编辑弹窗 -->
+  <div id="editModal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-edit></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-edit>×</button>
+      <h2>编辑支付记录</h2>
+      <form id="editForm" class="pay-form">
+        <input type="hidden" id="editId" />
+        <label class="field"><span>姓名</span><input id="editName" type="text" maxlength="60" required /></label>
+        <label class="field"><span>金额（主单位）</span><input id="editAmount" type="number" min="0.01" step="0.01" required /></label>
+        <label class="field"><span>参考号 / TxHash</span><input id="editRef" type="text" /></label>
+        <label class="field"><span>备注</span><input id="editNote" type="text" /></label>
+        <label class="field"><span>状态</span>
+          <select id="editStatus" style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;font-size:15px;font-family:inherit;">
+            <option value="pending">待支付</option>
+            <option value="paid">已支付</option>
+            <option value="refunded">已退款</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-primary btn-block btn-lg">保存</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/admin.js"></script>
+</body>
+</html>
