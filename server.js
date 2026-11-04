@@ -9,8 +9,9 @@ import {
   listPayments, updatePayment, deletePayment, getLeaderboard, confirmPaymentManual,
   createWithdrawal, listWithdrawals, updateWithdrawal, getStats, nowISO, seedDemoData,
   checkRateLimit, getPaymentHistoryByName,
+  createCustomProvider, getCustomProvider, getCustomProviderByPid, listCustomProviders, updateCustomProvider, deleteCustomProvider,
 } from './lib/db.js';
-import { providerNames, getProvider, providerConfigDetail, getProviderStatus } from './lib/providers/index.js';
+import { providerNames, getProvider, providerConfigDetail, getProviderStatus, reloadCustomProviders } from './lib/providers/index.js';
 import { verifyPassword, createToken, verifyToken } from './lib/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -508,6 +509,80 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {
           return sendJson(res, { ok: false, reason: e.message });
         }
+      }
+
+      // ===== 自定义支付通道 CRUD =====
+
+      // 创建自定义支付通道
+      if (method === 'POST' && pathname === '/api/admin/providers/custom') {
+        const body = await readJson(req);
+        const providerId = String(body.providerId || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+        const label = String(body.label || '').trim();
+        const mode = String(body.mode || 'manual').trim();
+        const sortOrder = Number(body.sortOrder) || 0;
+        const enabled = body.enabled !== false;
+        if (!providerId) return sendError(res, 400, '请填写通道ID（仅限小写字母、数字、横线、下划线）');
+        if (!label) return sendError(res, 400, '请填写通道名称');
+        if (!['manual', 'crypto', 'bank', 'redirect'].includes(mode)) return sendError(res, 400, '模式无效，可选：manual / crypto / bank / redirect');
+
+        // 检查 ID 不与内置 provider 冲突
+        const builtinIds = ['stripe', 'paypal', 'airwallex', 'usdt', 'wise', 'payoneer', 'cashapp', 'alipay', 'wechat', 'bankcard', 'other'];
+        if (builtinIds.includes(providerId)) return sendError(res, 400, `ID「${providerId}」与内置通道冲突，请换一个`);
+
+        // 检查唯一性
+        if (getCustomProviderByPid(providerId)) return sendError(res, 409, `ID「${providerId}」已存在`);
+
+        const instructions = body.instructions || null;
+        const rec = createCustomProvider({ providerId, label, mode, instructions, sortOrder, enabled });
+        reloadCustomProviders();
+        pushLeaderboard(); // 触发前端刷新 provider 列表
+        return sendJson(res, { ok: true, provider: rec });
+      }
+
+      // 列出自定义支付通道（含禁用的）
+      if (method === 'GET' && pathname === '/api/admin/providers/custom') {
+        const list = listCustomProviders({ includeDisabled: true });
+        return sendJson(res, { providers: list });
+      }
+
+      // 获取单个自定义支付通道
+      if (method === 'GET' && pathname.startsWith('/api/admin/providers/custom/')) {
+        const id = Number(pathname.split('/').pop());
+        if (!Number.isInteger(id)) return sendError(res, 400, 'ID 无效');
+        const rec = getCustomProvider(id);
+        if (!rec) return sendError(res, 404, '自定义支付通道不存在');
+        return sendJson(res, { provider: rec });
+      }
+
+      // 更新自定义支付通道
+      if (method === 'PATCH' && pathname.startsWith('/api/admin/providers/custom/')) {
+        const id = Number(pathname.split('/').pop());
+        if (!Number.isInteger(id)) return sendError(res, 400, 'ID 无效');
+        const body = await readJson(req);
+        const updates = {};
+        if (body.label !== undefined) updates.label = String(body.label).trim();
+        if (body.mode !== undefined) {
+          if (!['manual', 'crypto', 'bank', 'redirect'].includes(body.mode)) return sendError(res, 400, '模式无效');
+          updates.mode = body.mode;
+        }
+        if (body.instructions !== undefined) updates.instructions = body.instructions || null;
+        if (body.sortOrder !== undefined) updates.sortOrder = Number(body.sortOrder) || 0;
+        if (body.enabled !== undefined) updates.enabled = body.enabled ? 1 : 0;
+        const rec = updateCustomProvider(id, updates);
+        if (!rec) return sendError(res, 404, '自定义支付通道不存在');
+        reloadCustomProviders();
+        return sendJson(res, { ok: true, provider: rec });
+      }
+
+      // 删除自定义支付通道
+      if (method === 'DELETE' && pathname.startsWith('/api/admin/providers/custom/')) {
+        const id = Number(pathname.split('/').pop());
+        if (!Number.isInteger(id)) return sendError(res, 400, 'ID 无效');
+        const rec = getCustomProvider(id);
+        if (!rec) return sendError(res, 404, '自定义支付通道不存在');
+        deleteCustomProvider(id);
+        reloadCustomProviders();
+        return sendJson(res, { ok: true, deleted: id });
       }
 
       return sendError(res, 404, '接口不存在');

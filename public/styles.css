@@ -269,6 +269,18 @@ td .mono { font-family: ui-monospace, monospace; font-size: 12px; color: var(--m
 .pc-test-result.fail { background: #fdecea; color: var(--danger); }
 .pc-test-result.testing { background: #fff4e6; color: var(--bronze); }
 
+/* 自定义支付通道卡片样式 */
+.provider-card.custom { border-style: dashed; border-color: var(--primary); }
+.provider-card.custom:hover { border-color: var(--primary); border-style: solid; }
+.pc-custom-tag { font-size: 10px; padding: 2px 6px; border-radius: 8px; background: var(--primary); color: #fff; font-weight: 700; letter-spacing: .3px; }
+.pc-actions { flex-wrap: wrap; }
+
+/* 表单内 checkbox 行 */
+.field input[type="checkbox"] { cursor: pointer; }
+
+/* textarea in provider modal */
+.provider-card .pc-fields textarea { font-family: inherit; }
+
 @media (max-width: 640px) {
   .brand-text h1 { font-size: 20px; }
   .header-inner { flex-direction: column; text-align: center; }

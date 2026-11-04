@@ -73,10 +73,13 @@
       <div class="panel">
         <div class="panel-head">
           <h3>支付通道接入配置</h3>
-          <button id="refreshProvidersBtn" class="btn btn-ghost btn-sm">刷新</button>
+          <div style="display:flex;gap:8px;">
+            <button id="addProviderBtn" class="btn btn-primary btn-sm">+ 添加支付通道</button>
+            <button id="refreshProvidersBtn" class="btn btn-ghost btn-sm">刷新</button>
+          </div>
         </div>
         <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
-          以下展示所有已注册支付方式的接入状态。密钥类配置请在项目根目录 <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:ui-monospace,monospace;font-size:12px;">.env</code> 文件中设置后重启服务生效。Webhook 回调地址需在各支付平台后台配置。
+          以下展示所有已注册支付方式的接入状态。内置通道密钥请在 <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:ui-monospace,monospace;font-size:12px;">.env</code> 中设置；自定义通道可点击上方按钮手动添加，即时生效。
         </p>
         <div id="providersGrid" class="providers-grid"></div>
       </div>
@@ -144,6 +147,67 @@
           </select>
         </label>
         <button type="submit" class="btn btn-primary btn-block btn-lg">保存</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 添加/编辑自定义支付通道弹窗 -->
+  <div id="providerModal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-pm></div>
+    <div class="modal-card" style="max-width:560px;">
+      <button class="modal-close" data-close-pm>×</button>
+      <h2 id="providerModalTitle">添加自定义支付通道</h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">自定义通道为手动确认模式：用户提交支付凭证后，由管理员在后台确认上榜。</p>
+      <form id="providerForm" class="pay-form">
+        <input type="hidden" id="cpId" />
+        <label class="field">
+          <span>通道 ID <small style="color:var(--muted);">（唯一标识，创建后不可修改）</small></span>
+          <input id="cpPid" type="text" maxlength="30" placeholder="如：alipay-biz / usdt-tron" pattern="[a-z0-9_-]+" style="font-family:ui-monospace,monospace;" required />
+        </label>
+        <label class="field">
+          <span>显示名称</span>
+          <input id="cpLabel" type="text" maxlength="40" placeholder="如：支付宝(企业版)" required />
+        </label>
+        <label class="field">
+          <span>支付模式</span>
+          <select id="cpMode" style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;font-size:15px;font-family:inherit;">
+            <option value="manual">手动凭证 — 用户填写交易参考号</option>
+            <option value="crypto">加密货币 — 显示钱包地址+TxHash</option>
+            <option value="bank">银行转账 — 显示银行账户信息</option>
+          </select>
+        </label>
+        <label class="field" id="cpAddressField">
+          <span>收款地址 / 账号 <small style="color:var(--muted);">（可选）</small></span>
+          <input id="cpAddress" type="text" placeholder="钱包地址 / 银行账号 / 收款账号" />
+        </label>
+        <label class="field" id="cpHolderField" hidden>
+          <span>账户持有人 <small style="color:var(--muted);">（可选）</small></span>
+          <input id="cpHolder" type="text" placeholder="持有人姓名" />
+        </label>
+        <label class="field" id="cpBankField" hidden>
+          <span>银行名称 <small style="color:var(--muted);">（可选）</small></span>
+          <input id="cpBankName" type="text" placeholder="如：招商银行" />
+        </label>
+        <label class="field" id="cpNetworkField" hidden>
+          <span>网络 / 链 <small style="color:var(--muted);">（可选）</small></span>
+          <input id="cpNetwork" type="text" placeholder="如：TRC20 / ERC20" />
+        </label>
+        <label class="field" id="cpQrField" hidden>
+          <span>二维码 / 链接 <small style="color:var(--muted);">（可选）</small></span>
+          <input id="cpQrUrl" type="text" placeholder="二维码图片URL或支付链接" />
+        </label>
+        <label class="field">
+          <span>补充说明 <small style="color:var(--muted);">（可选）</small></span>
+          <textarea id="cpNote" rows="2" placeholder="额外的支付指引、备注等" style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;font-size:14px;font-family:inherit;resize:vertical;"></textarea>
+        </label>
+        <label class="field" style="flex-direction:row;align-items:center;gap:10px;">
+          <input id="cpEnabled" type="checkbox" checked style="width:18px;height:18px;" />
+          <span style="font-size:14px;">启用此通道</span>
+        </label>
+        <div style="display:flex;gap:10px;">
+          <button type="submit" class="btn btn-primary btn-block btn-lg">保存</button>
+          <button type="button" id="cpDeleteBtn" class="btn btn-danger btn-lg" hidden>删除</button>
+        </div>
       </form>
     </div>
   </div>

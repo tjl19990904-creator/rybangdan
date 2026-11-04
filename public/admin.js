@@ -306,11 +306,12 @@ async function loadProviders() {
         : `<div class="pc-field"><span class="pc-field-label" style="color:var(--muted);">无需密钥（手动模式）</span></div>`;
       const webhookUrl = `${location.origin}${p.webhookPath}`;
       return `
-        <div class="provider-card" id="pc-${p.id}">
+        <div class="provider-card ${p.isCustom ? 'custom' : ''}" id="pc-${p.id}">
           <div class="provider-card-head">
             <div class="provider-card-title">
               <span class="pc-name">${escapeHtml(p.label)}</span>
               <span class="pc-mode ${p.mode}">${modeLabel}</span>
+              ${p.isCustom ? '<span class="pc-custom-tag">自定义</span>' : ''}
             </div>
             ${envBadge}
           </div>
@@ -324,6 +325,7 @@ async function loadProviders() {
             ${p.envReady
               ? `<button class="btn btn-primary btn-sm" onclick="testProvider('${p.id}')">测试连通性</button>`
               : `<button class="btn btn-ghost btn-sm" onclick="testProvider('${p.id}')">测试连通性</button>`}
+            ${p.isCustom ? `<button class="btn btn-ghost btn-sm" onclick="editCustomProvider(${p.customId})">编辑</button>` : ''}
           </div>
           <div id="pc-result-${p.id}" class="pc-test-result" hidden></div>
         </div>
@@ -379,6 +381,162 @@ window.copyText = async (text) => {
 
 // 刷新按钮
 if ($('refreshProvidersBtn')) $('refreshProvidersBtn').addEventListener('click', loadProviders);
+
+// ---------- 自定义支付通道管理 ----------
+const PROVIDER_BUILTIN_IDS = ['stripe', 'paypal', 'airwallex', 'usdt', 'wise', 'payoneer', 'cashapp', 'alipay', 'wechat', 'bankcard', 'other'];
+
+// 添加按钮
+if ($('addProviderBtn')) $('addProviderBtn').addEventListener('click', () => openProviderModal());
+
+// 弹窗关闭
+$('providerModal').querySelectorAll('[data-close-pm]').forEach(el => {
+  el.addEventListener('click', () => { $('providerModal').hidden = true; });
+});
+
+// 模式切换时显示/隐藏对应字段
+$('cpMode').addEventListener('change', () => {
+  updateProviderFieldVisibility();
+});
+
+function updateProviderFieldVisibility() {
+  const mode = $('cpMode').value;
+  const isCrypto = mode === 'crypto';
+  const isBank = mode === 'bank';
+  $('cpNetworkField').hidden = !isCrypto;
+  $('cpQrField').hidden = !(isCrypto || mode === 'manual');
+  $('cpHolderField').hidden = !isBank;
+  $('cpBankField').hidden = !isBank;
+  // 地址字段标签随模式变化
+  const addrLabel = $('cpAddressField').querySelector('span');
+  if (isCrypto) addrLabel.innerHTML = '钱包地址 <small style="color:var(--muted);">（必填）</small>';
+  else if (isBank) addrLabel.innerHTML = '银行账号 <small style="color:var(--muted);">（可选）</small>';
+  else addrLabel.innerHTML = '收款地址 / 账号 <small style="color:var(--muted);">（可选）</small>';
+}
+
+window.editCustomProvider = async (id) => {
+  openProviderModal(id);
+};
+
+async function openProviderModal(id = null) {
+  // 重置表单
+  $('providerForm').reset();
+  $('cpId').value = '';
+  $('cpDeleteBtn').hidden = true;
+  $('cpPid').disabled = false;
+  updateProviderFieldVisibility();
+
+  if (id) {
+    // 编辑模式：加载数据
+    $('providerModalTitle').textContent = '编辑自定义支付通道';
+    try {
+      const res = await fetch(`/api/admin/providers/custom/${id}`);
+      const data = await res.json();
+      const p = data.provider;
+      if (!p) return showToast('通道不存在');
+      $('cpId').value = p.id;
+      $('cpPid').value = p.provider_id;
+      $('cpPid').disabled = true; // ID 不可编辑
+      $('cpLabel').value = p.label;
+      $('cpMode').value = p.mode;
+      const ins = p.instructions || {};
+      $('cpAddress').value = ins.address || ins.account || '';
+      $('cpHolder').value = ins.holder || '';
+      $('cpBankName').value = ins.bankName || '';
+      $('cpNetwork').value = ins.network || '';
+      $('cpQrUrl').value = ins.qrUrl || '';
+      $('cpNote').value = ins.note || '';
+      $('cpEnabled').checked = p.enabled === 1;
+      $('cpDeleteBtn').hidden = false;
+      updateProviderFieldVisibility();
+    } catch (e) {
+      showToast('加载失败: ' + e.message);
+      return;
+    }
+  } else {
+    $('providerModalTitle').textContent = '添加自定义支付通道';
+  }
+  $('providerModal').hidden = false;
+}
+
+// 提交表单（创建/更新）
+$('providerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('cpId').value;
+  const providerId = $('cpPid').value.trim().toLowerCase();
+  const label = $('cpLabel').value.trim();
+  const mode = $('cpMode').value;
+  const enabled = $('cpEnabled').checked;
+
+  // 构建 instructions 对象
+  const instructions = {};
+  const addr = $('cpAddress').value.trim();
+  const holder = $('cpHolder').value.trim();
+  const bankName = $('cpBankName').value.trim();
+  const network = $('cpNetwork').value.trim();
+  const qrUrl = $('cpQrUrl').value.trim();
+  const note = $('cpNote').value.trim();
+  if (addr) instructions.address = addr;
+  if (holder) instructions.holder = holder;
+  if (bankName) instructions.bankName = bankName;
+  if (network) instructions.network = network;
+  if (qrUrl) instructions.qrUrl = qrUrl;
+  if (note) instructions.note = note;
+
+  // 基本校验
+  if (!providerId) return showToast('请填写通道 ID');
+  if (!/^[a-z0-9_-]+$/.test(providerId)) return showToast('ID 仅支持小写字母、数字、横线、下划线');
+  if (PROVIDER_BUILTIN_IDS.includes(providerId)) return showToast(`ID「${providerId}」与内置通道冲突`);
+  if (!label) return showToast('请填写显示名称');
+  if (mode === 'crypto' && !addr) return showToast('加密货币模式需填写钱包地址');
+
+  const body = { providerId, label, mode, instructions: Object.keys(instructions).length ? instructions : null, enabled };
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = '保存中...';
+
+  try {
+    let res;
+    if (id) {
+      // 更新（不传 providerId，因为不可修改）
+      res = await fetch(`/api/admin/providers/custom/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, mode, instructions: body.instructions, enabled }),
+      });
+    } else {
+      res = await fetch('/api/admin/providers/custom', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '操作失败');
+    $('providerModal').hidden = true;
+    showToast(id ? '已更新' : '已添加');
+    await Promise.all([loadProviders(), loadConfig()]);
+  } catch (e) {
+    showToast(e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '保存';
+  }
+});
+
+// 删除按钮
+$('cpDeleteBtn').addEventListener('click', async () => {
+  const id = $('cpId').value;
+  if (!id) return;
+  if (!confirm('确定删除此自定义支付通道？已产生的支付记录不受影响。')) return;
+  try {
+    const res = await fetch(`/api/admin/providers/custom/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || '删除失败');
+    }
+    $('providerModal').hidden = true;
+    showToast('已删除');
+    await Promise.all([loadProviders(), loadConfig()]);
+  } catch (e) {
+    showToast(e.message);
+  }
+});
 
 // ---------- SSE ----------
 function connectSSE() {
