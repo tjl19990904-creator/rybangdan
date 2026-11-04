@@ -486,32 +486,13 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, { providers: providerConfigDetail() });
       }
 
-      if (method === 'GET' && pathname.startsWith('/api/admin/providers/') && !pathname.includes('/test')) {
-        const pid = pathname.split('/').pop();
-        const detail = getProviderStatus(pid);
-        if (!detail) return sendError(res, 404, '支付方式不存在');
-        return sendJson(res, { provider: detail });
-      }
+      // ===== 自定义支付通道 CRUD（必须在 /api/admin/providers/:pid 之前匹配） =====
 
-      // 测试某支付通道的 API 连通性（对 redirect 类发起一次 createCheckout 试调用）
-      if (method === 'POST' && pathname.startsWith('/api/admin/providers/') && pathname.endsWith('/test')) {
-        const parts = pathname.split('/');
-        const pid = parts[4];
-        const mod = getProvider(pid);
-        if (!mod) return sendError(res, 404, '支付方式不存在');
-        const cfg = mod.getConfig();
-        if (!cfg.envReady) return sendJson(res, { ok: false, reason: '未配置真实密钥（当前为演示/手动模式）' });
-        try {
-          if (mod.createCheckout) {
-            await mod.createCheckout({ name: 'Connection Test', amountCents: 100, currency: CURRENCY, successUrl: `${PUBLIC_BASE_URL}/`, cancelUrl: `${PUBLIC_BASE_URL}/` });
-          }
-          return sendJson(res, { ok: true, message: 'API 连通正常' });
-        } catch (e) {
-          return sendJson(res, { ok: false, reason: e.message });
-        }
+      // 列出自定义支付通道（含禁用的）
+      if (method === 'GET' && pathname === '/api/admin/providers/custom') {
+        const list = listCustomProviders({ includeDisabled: true });
+        return sendJson(res, { providers: list });
       }
-
-      // ===== 自定义支付通道 CRUD =====
 
       // 创建自定义支付通道
       if (method === 'POST' && pathname === '/api/admin/providers/custom') {
@@ -535,14 +516,7 @@ const server = http.createServer(async (req, res) => {
         const instructions = body.instructions || null;
         const rec = createCustomProvider({ providerId, label, mode, instructions, sortOrder, enabled });
         reloadCustomProviders();
-        pushLeaderboard(); // 触发前端刷新 provider 列表
         return sendJson(res, { ok: true, provider: rec });
-      }
-
-      // 列出自定义支付通道（含禁用的）
-      if (method === 'GET' && pathname === '/api/admin/providers/custom') {
-        const list = listCustomProviders({ includeDisabled: true });
-        return sendJson(res, { providers: list });
       }
 
       // 获取单个自定义支付通道
@@ -583,6 +557,32 @@ const server = http.createServer(async (req, res) => {
         deleteCustomProvider(id);
         reloadCustomProviders();
         return sendJson(res, { ok: true, deleted: id });
+      }
+
+      // 获取单个 provider 详情
+      if (method === 'GET' && pathname.startsWith('/api/admin/providers/') && !pathname.includes('/test') && !pathname.includes('/custom')) {
+        const pid = pathname.split('/').pop();
+        const detail = getProviderStatus(pid);
+        if (!detail) return sendError(res, 404, '支付方式不存在');
+        return sendJson(res, { provider: detail });
+      }
+
+      // 测试某支付通道的 API 连通性（对 redirect 类发起一次 createCheckout 试调用）
+      if (method === 'POST' && pathname.startsWith('/api/admin/providers/') && pathname.endsWith('/test')) {
+        const parts = pathname.split('/');
+        const pid = parts[4];
+        const mod = getProvider(pid);
+        if (!mod) return sendError(res, 404, '支付方式不存在');
+        const cfg = mod.getConfig();
+        if (!cfg.envReady) return sendJson(res, { ok: false, reason: '未配置真实密钥（当前为演示/手动模式）' });
+        try {
+          if (mod.createCheckout) {
+            await mod.createCheckout({ name: 'Connection Test', amountCents: 100, currency: CURRENCY, successUrl: `${PUBLIC_BASE_URL}/`, cancelUrl: `${PUBLIC_BASE_URL}/` });
+          }
+          return sendJson(res, { ok: true, message: 'API 连通正常' });
+        } catch (e) {
+          return sendJson(res, { ok: false, reason: e.message });
+        }
       }
 
       return sendError(res, 404, '接口不存在');
