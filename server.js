@@ -125,12 +125,23 @@ const MIME = {
 };
 function serveStatic(req, res, pathname) {
   if (pathname === '/') pathname = '/index.html';
+  else if (pathname === '/admin' || pathname === '/admin/') pathname = '/admin.html';
+  else if (!path.extname(pathname)) {
+    // /admin、/success 等无扩展名路径自动回退到同名 .html
+    const clean = pathname.replace(/\/$/, '');
+    const candidate = path.join(PUBLIC_DIR, path.normalize(clean + '.html'));
+    if (candidate.startsWith(PUBLIC_DIR) && fs.existsSync(candidate)) pathname = clean + '.html';
+  }
   const filePath = path.join(PUBLIC_DIR, path.normalize(pathname));
   if (!filePath.startsWith(PUBLIC_DIR)) return sendError(res, 403, '禁止访问');
   fs.readFile(filePath, (err, data) => {
     if (err) return sendError(res, 404, '页面不存在');
     const ext = path.extname(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    // 静态资源一律不缓存，避免改版后浏览器 / CDN 仍使用旧的 admin.js 导致登录异常
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-cache, must-revalidate',
+    });
     res.end(data);
   });
 }
@@ -627,6 +638,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  ✓ 付费排名展示网站已启动`);
   console.log(`    榜单页: ${PUBLIC_BASE_URL}/`);
-  console.log(`    后台页: ${PUBLIC_BASE_URL}/admin.html`);
+  console.log(`    后台页: ${PUBLIC_BASE_URL}/admin`);
   console.log(`    已加载支付方式: ${providerNames().map(p => p.label).join(' / ') || '无'}\n`);
 });
