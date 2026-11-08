@@ -1,6 +1,40 @@
 // admin.js — 后台管理逻辑（多 Provider + 手动确认）
 const $ = (id) => document.getElementById(id);
-const state = { config: null, sse: null };
+const state = { config: null, sse: null, pollTimer: null };
+
+// ---------- 统一 API 请求 ----------
+// 所有请求显式携带同源 Cookie；任何后台接口返回 401 时自动退回登录页并给出明确提示，
+// 避免出现"页面显示已登录但数据一片空白、刷新也无效"的假登录死循环。
+const nativeFetch = window.fetch.bind(window);
+let sessionExpiredNotified = false;
+
+function backToLogin(message) {
+  if (state.sse) { state.sse.close(); state.sse = null; }
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+  $('adminView').hidden = true;
+  $('loginView').hidden = false;
+  $('loginPwd').value = '';
+  const box = $('loginError');
+  if (box) box.textContent = message || '';
+}
+
+async function apiFetch(url, opts = {}) {
+  const res = await nativeFetch(url, { credentials: 'same-origin', cache: 'no-store', ...opts });
+  const isAuthProbe = url.includes('/api/admin/me') || url.includes('/api/admin/login');
+  if (res.status === 401 && !isAuthProbe) {
+    if (!sessionExpiredNotified) {
+      sessionExpiredNotified = true;
+      backToLogin('登录已过期或会话失效，请重新输入密码');
+    }
+    throw new Error('SESSION_EXPIRED');
+  }
+  return res;
+}
+
+// 会话失效时并行请求会一起 reject，统一静默处理，避免控制台刷红字
+window.addEventListener('unhandledrejection', (e) => {
+  if (e.reason?.message === 'SESSION_EXPIRED') e.preventDefault();
+});
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -33,40 +67,62 @@ function showToast(msg) {
 
 // ---------- 鉴权 ----------
 async function checkAuth() {
-  try { const res = await fetch('/api/admin/me'); return res.ok; }
-  catch (_) { return false; }
+  try {
+    const res = await apiFetch('/api/admin/me', { cache: 'no-store' });
+    return res.ok && (await res.json().catch(() => ({}))).authenticated === true;
+  } catch (_) { return false; }
 }
 
 $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const pwd = $('loginPwd').value;
-  $('loginError').textContent = '';
-  const res = await fetch('/api/admin/login', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: pwd }),
-  });
-  if (res.ok) enterAdmin();
-  else {
-    const data = await res.json().catch(() => ({}));
-    $('loginError').textContent = data.error || '登录失败';
+  const errBox = $('loginError');
+  const btn = $('loginForm').querySelector('button[type="submit"]');
+  errBox.textContent = '';
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = '登录中…';
+  try {
+    const res = await apiFetch('/api/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd }),
+    });
+    if (res.ok) {
+      sessionExpiredNotified = false;
+      await enterAdmin();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      errBox.textContent = data.error || '登录失败，请稍后重试';
+      $('loginPwd').select();
+    }
+  } catch (err) {
+    errBox.textContent = '无法连接服务器，请检查网络后重试';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
   }
 });
 
 $('logoutBtn').addEventListener('click', async () => {
-  await fetch('/api/admin/logout', { method: 'POST' });
-  $('adminView').hidden = true; $('loginView').hidden = false; $('loginPwd').value = '';
+  try { await apiFetch('/api/admin/logout', { method: 'POST' }); } catch (_) {}
+  backToLogin('');
 });
 
 async function enterAdmin() {
-  $('loginView').hidden = true; $('adminView').hidden = false;
-  await loadConfig();
-  await Promise.all([loadStats(), loadPayments(), loadProviders(), loadLeaderboard(), loadWithdrawals()]);
+  $('loginView').hidden = true;
+  $('adminView').hidden = false;
+  try {
+    await loadConfig();
+    await Promise.allSettled([loadStats(), loadPayments(), loadProviders(), loadLeaderboard(), loadWithdrawals()]);
+  } catch (err) {
+    if (err?.message !== 'SESSION_EXPIRED') showToast('部分数据加载失败，请刷新重试');
+  }
   connectSSE();
 }
 
 // ---------- 加载配置 ----------
 async function loadConfig() {
-  const res = await fetch('/api/config');
+  const res = await apiFetch('/api/config');
   state.config = await res.json();
   // 填充 provider 筛选
   const sel = $('filterProvider');
@@ -77,7 +133,7 @@ async function loadConfig() {
 
 // ---------- 统计 ----------
 async function loadStats() {
-  const res = await fetch('/api/admin/stats');
+  const res = await apiFetch('/api/admin/stats');
   const s = await res.json();
   const sym = state.config?.symbol || '$';
   const cards = [
@@ -98,7 +154,7 @@ async function loadPayments() {
   const status = $('filterStatus').value;
   const provider = $('filterProvider').value;
   const search = $('searchInput').value;
-  const res = await fetch(`/api/admin/payments?status=${encodeURIComponent(status)}&provider=${encodeURIComponent(provider)}&search=${encodeURIComponent(search)}`);
+  const res = await apiFetch(`/api/admin/payments?status=${encodeURIComponent(status)}&provider=${encodeURIComponent(provider)}&search=${encodeURIComponent(search)}`);
   const data = await res.json();
   const sym = state.config?.symbol || '$';
   const body = $('paymentsBody');
@@ -129,7 +185,7 @@ async function loadPayments() {
 }
 
 window.editPayment = async (id) => {
-  const res = await fetch('/api/admin/payments?status=all');
+  const res = await apiFetch('/api/admin/payments?status=all');
   const data = await res.json();
   const p = data.payments.find(x => x.id === id);
   if (!p) return showToast('记录不存在');
@@ -144,7 +200,7 @@ window.editPayment = async (id) => {
 
 window.confirmPayment = async (id) => {
   if (!confirm('确认该笔支付已到账？确认后将立即上榜。')) return;
-  const res = await fetch(`/api/admin/payments/${id}/confirm`, { method: 'POST' });
+  const res = await apiFetch(`/api/admin/payments/${id}/confirm`, { method: 'POST' });
   if (res.ok) {
     showToast('已确认支付');
     await Promise.all([loadPayments(), loadStats(), loadLeaderboard()]);
@@ -155,7 +211,7 @@ window.confirmPayment = async (id) => {
 
 window.delPayment = async (id, name) => {
   if (!confirm(`确定删除「${name}」的这条支付记录？此操作不可撤销。`)) return;
-  const res = await fetch(`/api/admin/payments/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`/api/admin/payments/${id}`, { method: 'DELETE' });
   if (res.ok) {
     showToast('已删除');
     await Promise.all([loadPayments(), loadStats(), loadLeaderboard()]);
@@ -176,7 +232,7 @@ $('editForm').addEventListener('submit', async (e) => {
     note: $('editNote').value.trim() || null,
     status: $('editStatus').value,
   };
-  const res = await fetch(`/api/admin/payments/${id}`, {
+  const res = await apiFetch(`/api/admin/payments/${id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -201,7 +257,7 @@ function debounce(fn, ms) {
 
 // ---------- 榜单聚合 ----------
 async function loadLeaderboard() {
-  const res = await fetch('/api/leaderboard');
+  const res = await apiFetch('/api/leaderboard');
   const data = await res.json();
   const sym = state.config?.symbol || '$';
   $('lbCount').textContent = `${data.board.length} 位上榜者`;
@@ -229,7 +285,7 @@ $('withdrawForm').addEventListener('submit', async (e) => {
     method: $('wMethod').value.trim() || null,
     note: $('wNote').value.trim() || null,
   };
-  const res = await fetch('/api/admin/withdrawals', {
+  const res = await apiFetch('/api/admin/withdrawals', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -244,7 +300,7 @@ $('withdrawForm').addEventListener('submit', async (e) => {
 });
 
 async function loadWithdrawals() {
-  const res = await fetch('/api/admin/withdrawals');
+  const res = await apiFetch('/api/admin/withdrawals');
   const data = await res.json();
   const sym = state.config?.symbol || '$';
   const body = $('withdrawalsBody');
@@ -266,7 +322,7 @@ async function loadWithdrawals() {
 }
 
 window.markWithdrawal = async (id) => {
-  const res = await fetch(`/api/admin/withdrawals/${id}`, {
+  const res = await apiFetch(`/api/admin/withdrawals/${id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: 'processed' }),
   });
@@ -283,7 +339,7 @@ async function loadProviders() {
   const grid = $('providersGrid');
   if (!grid) return;
   try {
-    const res = await fetch('/api/admin/providers');
+    const res = await apiFetch('/api/admin/providers');
     const data = await res.json();
     const list = data.providers || [];
     if (!list.length) {
@@ -344,7 +400,7 @@ window.testProvider = async (id) => {
     resultDiv.textContent = '正在测试…';
   }
   try {
-    const res = await fetch(`/api/admin/providers/${id}/test`, { method: 'POST' });
+    const res = await apiFetch(`/api/admin/providers/${id}/test`, { method: 'POST' });
     const data = await res.json();
     if (resultDiv) {
       resultDiv.hidden = false;
@@ -429,7 +485,7 @@ async function openProviderModal(id = null) {
     // 编辑模式：加载数据
     $('providerModalTitle').textContent = '编辑自定义支付通道';
     try {
-      const res = await fetch(`/api/admin/providers/custom/${id}`);
+      const res = await apiFetch(`/api/admin/providers/custom/${id}`);
       const data = await res.json();
       const p = data.provider;
       if (!p) return showToast('通道不存在');
@@ -497,12 +553,12 @@ $('providerForm').addEventListener('submit', async (e) => {
     let res;
     if (id) {
       // 更新（不传 providerId，因为不可修改）
-      res = await fetch(`/api/admin/providers/custom/${id}`, {
+      res = await apiFetch(`/api/admin/providers/custom/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label, mode, instructions: body.instructions, enabled }),
       });
     } else {
-      res = await fetch('/api/admin/providers/custom', {
+      res = await apiFetch('/api/admin/providers/custom', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
@@ -525,7 +581,7 @@ $('cpDeleteBtn').addEventListener('click', async () => {
   if (!id) return;
   if (!confirm('确定删除此自定义支付通道？已产生的支付记录不受影响。')) return;
   try {
-    const res = await fetch(`/api/admin/providers/custom/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/admin/providers/custom/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       throw new Error(d.error || '删除失败');
@@ -540,19 +596,31 @@ $('cpDeleteBtn').addEventListener('click', async () => {
 
 // ---------- SSE ----------
 function connectSSE() {
+  if ($('loginView').hidden === false) return; // 已退回登录页则不再建立连接
   if (state.sse) state.sse.close();
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
   try {
-    const es = new EventSource('/api/stream');
+    const es = new EventSource('/api/stream', { withCredentials: true });
     state.sse = es;
-    es.addEventListener('admin', () => { loadStats(); loadPayments(); loadLeaderboard(); loadWithdrawals(); });
+    const refresh = () => { loadStats(); loadPayments(); loadLeaderboard(); loadWithdrawals(); };
+    es.addEventListener('admin', refresh);
     es.addEventListener('leaderboard', () => { loadLeaderboard(); });
+    es.onerror = () => {
+      if (!state.pollTimer) state.pollTimer = setInterval(refresh, 10000);
+    };
   } catch (_) {
-    setInterval(() => { loadStats(); loadPayments(); loadLeaderboard(); loadWithdrawals(); }, 10000);
+    if (!state.pollTimer) {
+      state.pollTimer = setInterval(() => {
+        loadStats(); loadPayments(); loadLeaderboard(); loadWithdrawals();
+      }, 10000);
+    }
   }
 }
 
 // ---------- 启动 ----------
 (async () => {
+  const hostEl = $('loginHost');
+  if (hostEl) hostEl.textContent = `${location.host}/admin`;
   const authed = await checkAuth();
   if (authed) enterAdmin();
   else $('loginView').hidden = false;

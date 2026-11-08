@@ -48,6 +48,21 @@ function sendJson(res, obj, status = 200, extraHeaders = {}) {
 }
 function sendError(res, status, message) { sendJson(res, { error: message }, status); }
 
+// 所有鉴权相关响应禁止缓存，避免 CDN / 浏览器缓存住 401 或登录结果
+const NO_STORE = { 'Cache-Control': 'no-store, no-cache, must-revalidate, private', 'Pragma': 'no-cache' };
+
+// 会话 Cookie 统一配置：
+//  - 生产环境为 https，追加 Secure
+//  - 带 www 与不带 www 共享同一 Cookie（Domain 属性），避免"换个域名就掉登录"
+function cookieAttrs(maxAge) {
+  const autoDomain = PUBLIC_BASE_URL.includes('rybangdan.com') ? 'rybangdan.com' : '';
+  const host = String(process.env.ADMIN_COOKIE_DOMAIN || autoDomain);
+  const parts = ['HttpOnly', 'Path=/', 'SameSite=Lax', `Max-Age=${maxAge}`];
+  if (PUBLIC_BASE_URL.startsWith('https://')) parts.push('Secure');
+  if (host) parts.push(`Domain=${host}`);
+  return parts.join('; ');
+}
+
 function getCookies(req) {
   const out = {};
   const raw = req.headers.cookie;
@@ -121,8 +136,11 @@ function serveStatic(req, res, pathname) {
 }
 
 function requireAdmin(req, res) {
-  const token = getCookies(req).admin_token;
-  if (!verifyToken(token)) { sendError(res, 401, '未授权，请先登录'); return false; }
+  const token = getCookies(req).admin_session;
+  if (!verifyToken(token)) {
+    sendJson(res, { ok: false, error: '登录已过期，请重新登录' }, 401, NO_STORE);
+    return false;
+  }
   return true;
 }
 
@@ -383,21 +401,31 @@ const server = http.createServer(async (req, res) => {
     // ---------- 后台鉴权 ----------
     if (method === 'POST' && pathname === '/api/admin/login') {
       const body = await readJson(req);
-      if (!verifyPassword(body.password)) return sendError(res, 401, '密码错误');
+      if (!verifyPassword(body.password)) {
+        return sendJson(res, { ok: false, error: '密码错误，请检查后重试' }, 401, NO_STORE);
+      }
       const token = createToken();
       return sendJson(res, { ok: true }, 200, {
-        'Set-Cookie': `admin_token=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400`,
+        ...NO_STORE,
+        // 同时清除旧版同名 Cookie，避免浏览器里残留的旧会话干扰
+        'Set-Cookie': [
+          `admin_session=${token}; ${cookieAttrs(7 * 86400)}`,
+          'admin_token=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0',
+        ],
       });
     }
 
     if (method === 'POST' && pathname === '/api/admin/logout') {
       return sendJson(res, { ok: true }, 200, {
-        'Set-Cookie': 'admin_token=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0',
+        ...NO_STORE,
+        'Set-Cookie': `admin_session=; ${cookieAttrs(0)}`,
       });
     }
 
+    // 会话状态检查：必须真正校验令牌，否则前端会误判为"已登录"而卡死在空白后台
     if (method === 'GET' && pathname === '/api/admin/me') {
-      return sendJson(res, { ok: true });
+      const ok = verifyToken(getCookies(req).admin_session);
+      return sendJson(res, { ok, authenticated: ok }, ok ? 200 : 401, NO_STORE);
     }
 
     // ---------- 后台受保护接口 ----------
