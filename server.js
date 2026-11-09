@@ -12,6 +12,7 @@ import {
   createCustomProvider, getCustomProvider, getCustomProviderByPid, listCustomProviders, updateCustomProvider, deleteCustomProvider,
 } from './lib/db.js';
 import { providerNames, getProvider, providerConfigDetail, getProviderStatus, reloadCustomProviders } from './lib/providers/index.js';
+import * as jnhpay from './lib/providers/jnhpay.js';
 import { verifyPassword, createToken, verifyToken } from './lib/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -200,6 +201,24 @@ async function handleProviderWebhook(req, res, providerId) {
     if (providerId === 'airwallex' && event.name === 'payment_intent.payment_success') {
       const id = event.data?.object?.id;
       if (id) await handleProviderCallback(res, 'airwallex', id);
+    }
+    // 嘉年华支付：验签通过后核对 real_amount，再按 out_order_number 标记订单，并应答 success
+    if (providerId === 'jnhpay') {
+      if (jnhpay.isPaidCallback(event)) {
+        const ref = String(event.out_order_number || '');
+        const existing = ref ? getPaymentByProviderRef('jnhpay', ref) : null;
+        const cents = jnhpay.callbackAmountCents(event);
+        if (cents !== null && existing && cents !== existing.amount_cents) {
+          console.error(`[webhook jnhpay] 金额不符 回调=${cents} 订单=${existing.amount_cents} ref=${ref}`);
+          return sendError(res, 400, '回调金额与订单不符');
+        }
+        if (existing && existing.status !== 'paid') {
+          markPaymentPaid({ provider: 'jnhpay', providerRef: ref });
+          pushLeaderboard(); pushAdmin();
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('success');
     }
     return sendJson(res, { received: true });
   } catch (e) {
