@@ -226,6 +226,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { ok: true, time: nowISO(), providers });
     }
 
+    // 运维诊断：返回服务端真实出站 IP，供支付平台 IP 白名单报备使用
+    if (method === 'GET' && pathname === '/api/egress') {
+      for (const ep of ['https://api.ipify.org?format=json', 'https://ipinfo.io/json']) {
+        try {
+          const r = await fetch(ep, { signal: AbortSignal.timeout(8000) });
+          if (!r.ok) continue;
+          const txt = await r.text();
+          let ip = null;
+          try { const j = JSON.parse(txt); ip = j.ip || null; } catch (_) { ip = txt.trim(); }
+          if (ip) return sendJson(res, { egressIp: ip, via: new URL(ep).hostname, time: nowISO() });
+        } catch (_) { /* 换下一个回显服务 */ }
+      }
+      return sendJson(res, { egressIp: null, error: '出站 IP 探测失败' }, 502);
+    }
+
     if (method === 'GET' && pathname === '/api/config') {
       return sendJson(res, {
         siteName: SITE_NAME, currency: CURRENCY, symbol: CURRENCY_SYMBOL,
