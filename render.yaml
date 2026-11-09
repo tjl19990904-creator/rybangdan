@@ -31,6 +31,8 @@ services:
         sync: false  # 固定随机会话密钥，避免改密码时踢掉所有登录
       - key: PUBLIC_BASE_URL
         value: https://rybangdan.com
+      - key: JNH_API_KEY
+        sync: false  # 嘉年华支付密钥：已落位，待接口规范确认后再接入启用
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
