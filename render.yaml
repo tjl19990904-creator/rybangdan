@@ -36,17 +36,15 @@ services:
       - key: JNH_MERCHANT_ID
         sync: false  # 商户号
       - key: JNH_GATE_ID
-        sync: false  # 通道编号 gate_id：312 与四个银行 ID 的层级关系待平台确认
-      - key: JNH_BANK_CODE
-        sync: false  # 银行编码 bankCode（如四家多米尼加银行需要）
+        value: "312"  # 多米尼加本地银行转账通道（已实测下单成功）
+      - key: JNH_BANK_CODE_FIELD
+        value: bankCode  # 文档字段名；商户侧示例写 bank_code，实测两者均被平台接受
       - key: JNH_ENABLED
-        value: "false"  # 总开关：IP 报白生效 + 沙箱联调通过后才改为 true
+        value: "false"  # 总开关：沙箱/小额联调通过后才改为 true
       - key: JNH_API_BASE
         value: https://api.jnhpay.xyz
-      - key: JNH_AMOUNT_MODE
-        value: major  # major=主单位 / cents=分；单位待沙箱确认
-      - key: JNH_CALLBACK_ACTION
-        value: "false"  # 回调签名是否含 action=callback，待平台确认
+      - key: JNH_CALLBACK_STRICT
+        value: "false"  # 默认兼容两种回调签名口径；确认后可为 true
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

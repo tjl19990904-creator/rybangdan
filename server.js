@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  createPayment, getPayment, getPaymentBySession, getPaymentByProviderRef, markPaymentPaid,
+  createPayment, getPayment, getPaymentBySession, getPaymentByProviderRef, getPaymentByRef, markPaymentPaid,
   listPayments, updatePayment, deletePayment, getLeaderboard, confirmPaymentManual,
   createWithdrawal, listWithdrawals, updateWithdrawal, getStats, nowISO, seedDemoData,
   checkRateLimit, getPaymentHistoryByName,
@@ -202,18 +202,19 @@ async function handleProviderWebhook(req, res, providerId) {
       const id = event.data?.object?.id;
       if (id) await handleProviderCallback(res, 'airwallex', id);
     }
-    // 嘉年华支付：验签通过后核对 real_amount，再按 out_order_number 标记订单，并应答 success
+    // 嘉年华支付：4 个银行通道共用一个回调入口，按 out_order_number 反查订单；
+    // 验签通过后核对 real_amount，再标记到账，并应答纯文本 success
     if (providerId === 'jnhpay') {
       if (jnhpay.isPaidCallback(event)) {
         const ref = String(event.out_order_number || '');
-        const existing = ref ? getPaymentByProviderRef('jnhpay', ref) : null;
+        const existing = ref ? getPaymentByRef(ref) : null;
         const cents = jnhpay.callbackAmountCents(event);
         if (cents !== null && existing && cents !== existing.amount_cents) {
           console.error(`[webhook jnhpay] 金额不符 回调=${cents} 订单=${existing.amount_cents} ref=${ref}`);
           return sendError(res, 400, '回调金额与订单不符');
         }
         if (existing && existing.status !== 'paid') {
-          markPaymentPaid({ provider: 'jnhpay', providerRef: ref });
+          markPaymentPaid({ provider: existing.provider, providerRef: ref });
           pushLeaderboard(); pushAdmin();
         }
       }
