@@ -317,7 +317,10 @@ const server = http.createServer(async (req, res) => {
       const providerId = String(body.provider || 'other').toLowerCase();
       if (!name) return sendError(res, 400, '请填写姓名');
       if (!isValidAmount(amount)) return sendError(res, 400, '金额无效');
-      if (amount < MIN_AMOUNT) return sendError(res, 400, `最低上榜金额为 ${CURRENCY_SYMBOL}${MIN_AMOUNT}`);
+      // 每个支付方式可有自己的最低金额（如嘉年华支付下限 10），未设置时用全站下限
+      const selected = getProvider(providerId);
+      const methodMin = Number(selected?.getConfig?.().minAmount) || MIN_AMOUNT;
+      if (amount < methodMin) return sendError(res, 400, `该支付方式最低金额为 ${CURRENCY_SYMBOL}${methodMin}`);
       const amountCents = Math.round(amount * 100);
 
       // 获取客户端 IP 并进行防刷校验

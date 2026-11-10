@@ -192,6 +192,13 @@ function bindFindRank() {
 }
 
 // ---------- Payment modal ----------
+// 当前所选支付方式的最低金额（未单独配置时回退到全站下限）
+function currentMinAmount() {
+  const id = $('payProvider')?.value;
+  const p = state.config?.providers?.find(x => x.id === id);
+  return Number(p?.minAmount) || Number(state.config?.minAmount) || 1;
+}
+
 function updateProviderUI() {
   const id = $('payProvider').value;
   const p = state.config?.providers?.find(x => x.id === id);
@@ -199,7 +206,13 @@ function updateProviderUI() {
   const note = $('payNote');
   const refInput = $('manualRef');
   const refLabel = $('refLabel');
-  if (!p) { box.hidden = true; note.textContent = ''; return; }
+  if (!p) {
+    box.hidden = true;
+    note.textContent = '';
+    $('payAmount').min = state.config?.minAmount || 1;
+    $('payAmount').placeholder = `Min ${state.config?.symbol || ''}${state.config?.minAmount || 1}`;
+    return;
+  }
 
   if (p.mode === 'manual' || p.mode === 'crypto' || p.mode === 'bank') {
     box.hidden = false;
@@ -210,6 +223,14 @@ function updateProviderUI() {
   } else {
     box.hidden = true;
     note.textContent = 'You will be redirected to a secure payment page.';
+  }
+
+  // 按支付方式动态调整金额下限，避免提交后才被平台拒绝
+  const min = Number(p.minAmount) || Number(state.config?.minAmount) || 1;
+  $('payAmount').min = min;
+  $('payAmount').placeholder = `Min ${state.config.symbol}${min}`;
+  if (min > Number(state.config?.minAmount || 1)) {
+    note.textContent += ` Minimum ${state.config.symbol}${min} for this method.`;
   }
 }
 
@@ -232,8 +253,9 @@ function bindModal() {
     const noteEl = $('payNote');
     if (!name) return;
     if (!provider) { noteEl.textContent = 'Please select a payment method'; return; }
-    if (!amount || amount < (state.config.minAmount || 1)) {
-      noteEl.textContent = `Minimum amount is ${state.config.symbol}${state.config.minAmount}`;
+    const minAmount = currentMinAmount();
+    if (!amount || amount < minAmount) {
+      noteEl.textContent = `Minimum amount is ${state.config.symbol}${minAmount}`;
       return;
     }
 

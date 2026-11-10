@@ -40,7 +40,7 @@ services:
       - key: JNH_BANK_CODE_FIELD
         value: bankCode  # 文档字段名；商户侧示例写 bank_code，实测两者均被平台接受
       - key: JNH_ENABLED
-        value: "false"  # 总开关：沙箱/小额联调通过后才改为 true
+        value: "true"  # 已启用：报白、签名、下单、回调端点均已实测通过
       - key: JNH_API_BASE
         value: https://api.jnhpay.xyz
       - key: JNH_CALLBACK_STRICT
