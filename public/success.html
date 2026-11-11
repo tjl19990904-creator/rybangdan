@@ -7,38 +7,53 @@
   <title>Payment Successful · Paid Ranking</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏆</text></svg>" />
   <link rel="stylesheet" href="/styles.css" />
+  <script src="/i18n.js"></script>
 </head>
-<body>
+<body data-title-key="success.metaTitle">
   <main class="wrap">
     <div class="success-card">
+      <div class="lang-switch success-lang" role="group" aria-label="Language">
+        <button type="button" data-lang="en" data-i18n="lang.en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="zh" data-i18n="lang.zh" aria-pressed="false">简体中文</button>
+      </div>
       <div class="success-icon">✅</div>
-      <h2 id="successTitle">Payment Successful!</h2>
-      <p id="successMsg" class="modal-sub">Thank you for joining the board. Your ranking has been updated in real time.</p>
+      <h2 id="successTitle" data-i18n="success.title">Payment Successful!</h2>
+      <p id="successMsg" class="modal-sub" data-i18n="success.msg">Thank you for joining the board. Your ranking has been updated in real time.</p>
       <div id="successInfo" class="success-info" hidden></div>
-      <a href="/" class="btn btn-primary btn-lg">Back to Leaderboard</a>
+      <a href="/" class="btn btn-primary btn-lg" data-i18n="success.back">Back to Leaderboard</a>
     </div>
   </main>
   <script>
     (async () => {
-      const sid = new URLSearchParams(location.search).get('session_id');
-      const ref = new URLSearchParams(location.search).get('ref');
-      const provider = new URLSearchParams(location.search).get('provider') || 'stripe';
-      const info = document.getElementById('successInfo');
+      const t = window.t;
+      const qs = new URLSearchParams(location.search);
+      const sid = qs.get('session_id');
+      const ref = qs.get('ref');
+      const provider = qs.get('provider') || 'stripe';
       const msg = document.getElementById('successMsg');
+
+      // 支付核实结果只存状态，文案在渲染时按当前语言生成，切换语言可即时重译
+      let status = 'base';
+      let paidName = '';
+      function renderMessage() {
+        if (status === 'pending') msg.textContent = t('success.pending');
+        else if (status === 'submitted') msg.textContent = t('success.submitted');
+        else if (paidName) msg.textContent = t('success.named', { name: paidName });
+        else msg.textContent = t('success.msg');
+      }
+      window.addEventListener('langchange', renderMessage);
+
       const checkRef = ref || sid;
       if (checkRef) {
         try {
           const res = await fetch('/api/verify?provider=' + encodeURIComponent(provider) + '&ref=' + encodeURIComponent(checkRef));
           const data = await res.json();
-          if (data.ok && data.paid) {
-            msg.textContent = data.name
-              ? `Thank you, ${data.name}! You are on the board. Your ranking has been updated in real time.`
-              : 'Thank you for joining the board. Your ranking has been updated in real time.';
-          } else if (data.ok && !data.paid) {
-            msg.textContent = 'Your payment is being confirmed. The leaderboard will update once payment is verified.';
-          }
+          if (data.ok && data.paid) { paidName = data.name || ''; status = 'paid'; }
+          else if (data.ok && !data.paid) { status = 'pending'; }
+          renderMessage();
         } catch (e) {
-          msg.textContent = 'Your payment has been submitted. The leaderboard will update shortly.';
+          status = 'submitted';
+          renderMessage();
         }
       }
     })();
