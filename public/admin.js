@@ -372,7 +372,6 @@ async function loadProviders() {
             ${envBadge}
           </div>
           <div class="pc-fields">${fieldsHtml}</div>
-          ${p.gateId ? `<div style="margin:6px 0 12px;font-size:12px;color:var(--muted);">通道号 gate_id: <code>${escapeHtml(p.gateId)}</code>${p.bankCode ? ` · 银行编码: <code>${escapeHtml(p.bankCode)}</code>` : ''}</div>` : ''}
           <div class="pc-webhook">
             <span>Webhook:</span>
             <code>${escapeHtml(webhookUrl)}</code>

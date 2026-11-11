@@ -5,14 +5,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  createPayment, getPayment, getPaymentBySession, getPaymentByProviderRef, getPaymentByRef, markPaymentPaid,
+  createPayment, getPayment, getPaymentBySession, getPaymentByProviderRef, markPaymentPaid,
   listPayments, updatePayment, deletePayment, getLeaderboard, confirmPaymentManual,
   createWithdrawal, listWithdrawals, updateWithdrawal, getStats, nowISO, seedDemoData,
   checkRateLimit, getPaymentHistoryByName,
   createCustomProvider, getCustomProvider, getCustomProviderByPid, listCustomProviders, updateCustomProvider, deleteCustomProvider,
 } from './lib/db.js';
 import { providerNames, getProvider, providerConfigDetail, getProviderStatus, reloadCustomProviders } from './lib/providers/index.js';
-import * as jnhpay from './lib/providers/jnhpay.js';
 import { verifyPassword, createToken, verifyToken } from './lib/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -202,25 +201,6 @@ async function handleProviderWebhook(req, res, providerId) {
       const id = event.data?.object?.id;
       if (id) await handleProviderCallback(res, 'airwallex', id);
     }
-    // 嘉年华支付：4 个银行通道共用一个回调入口，按 out_order_number 反查订单；
-    // 验签通过后核对 real_amount，再标记到账，并应答纯文本 success
-    if (providerId === 'jnhpay') {
-      if (jnhpay.isPaidCallback(event)) {
-        const ref = String(event.out_order_number || '');
-        const existing = ref ? getPaymentByRef(ref) : null;
-        const cents = jnhpay.callbackAmountCents(event);
-        if (cents !== null && existing && cents !== existing.amount_cents) {
-          console.error(`[webhook jnhpay] 金额不符 回调=${cents} 订单=${existing.amount_cents} ref=${ref}`);
-          return sendError(res, 400, '回调金额与订单不符');
-        }
-        if (existing && existing.status !== 'paid') {
-          markPaymentPaid({ provider: existing.provider, providerRef: ref });
-          pushLeaderboard(); pushAdmin();
-        }
-      }
-      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-      return res.end('success');
-    }
     return sendJson(res, { received: true });
   } catch (e) {
     console.error(`[webhook ${providerId}]`, e);
@@ -244,21 +224,6 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && pathname === '/api/health') {
       const providers = providerNames();
       return sendJson(res, { ok: true, time: nowISO(), providers });
-    }
-
-    // 运维诊断：返回服务端真实出站 IP，供支付平台 IP 白名单报备使用
-    if (method === 'GET' && pathname === '/api/egress') {
-      for (const ep of ['https://api.ipify.org?format=json', 'https://ipinfo.io/json']) {
-        try {
-          const r = await fetch(ep, { signal: AbortSignal.timeout(8000) });
-          if (!r.ok) continue;
-          const txt = await r.text();
-          let ip = null;
-          try { const j = JSON.parse(txt); ip = j.ip || null; } catch (_) { ip = txt.trim(); }
-          if (ip) return sendJson(res, { egressIp: ip, via: new URL(ep).hostname, time: nowISO() });
-        } catch (_) { /* 换下一个回显服务 */ }
-      }
-      return sendJson(res, { egressIp: null, error: '出站 IP 探测失败' }, 502);
     }
 
     if (method === 'GET' && pathname === '/api/config') {
@@ -317,10 +282,7 @@ const server = http.createServer(async (req, res) => {
       const providerId = String(body.provider || 'other').toLowerCase();
       if (!name) return sendError(res, 400, '请填写姓名');
       if (!isValidAmount(amount)) return sendError(res, 400, '金额无效');
-      // 每个支付方式可有自己的最低金额（如嘉年华支付下限 10），未设置时用全站下限
-      const selected = getProvider(providerId);
-      const methodMin = Number(selected?.getConfig?.().minAmount) || MIN_AMOUNT;
-      if (amount < methodMin) return sendError(res, 400, `该支付方式最低金额为 ${CURRENCY_SYMBOL}${methodMin}`);
+      if (amount < MIN_AMOUNT) return sendError(res, 400, `最低上榜金额为 ${CURRENCY_SYMBOL}${MIN_AMOUNT}`);
       const amountCents = Math.round(amount * 100);
 
       // 获取客户端 IP 并进行防刷校验
