@@ -33,6 +33,7 @@ function escapeHtml(s) {
 function localizeError(msg) {
   const text = String(msg || '');
   if (getLang() !== 'en') return text;
+  if (/^该支付方式最低金额为/.test(text)) return t('modal.needAmount', { sym: sym(), n: currentMinAmount() });
   if (/^最低上榜金额为/.test(text)) return t('modal.needAmount', { sym: sym(), n: state.config?.minAmount || 1 });
   const rate = text.match(/^操作过于频繁，相同金额请在\s*(\d+)\s*分钟后重试/);
   if (rate) return `Too many attempts. Please retry the same amount in ${rate[1]} minutes.`;
@@ -202,6 +203,13 @@ function bindFindRank() {
 }
 
 // ---------- Payment modal ----------
+// 当前所选支付方式的最低金额（未单独配置时回退到全站下限）
+function currentMinAmount() {
+  const id = $('payProvider')?.value;
+  const p = state.config?.providers?.find(x => x.id === id);
+  return Number(p?.minAmount) || Number(state.config?.minAmount) || 1;
+}
+
 function updateProviderUI() {
   const id = $('payProvider').value;
   const p = state.config?.providers?.find(x => x.id === id);
@@ -237,8 +245,11 @@ function updateProviderUI() {
     note.textContent = t('modal.redirectHint');
   }
 
-  $('payAmount').min = globalMin;
-  $('payAmount').placeholder = t('modal.minAmount', { sym: sym(), n: globalMin });
+  // 按支付方式动态调整金额下限，避免提交后才被平台拒绝
+  const min = Number(p.minAmount) || globalMin;
+  $('payAmount').min = min;
+  $('payAmount').placeholder = t('modal.minAmount', { sym: sym(), n: min });
+  if (min > globalMin) note.textContent += t('modal.minForMethod', { sym: sym(), n: min });
 }
 
 function bindModal() {
@@ -260,7 +271,7 @@ function bindModal() {
     const noteEl = $('payNote');
     if (!name) return;
     if (!provider) { noteEl.textContent = t('modal.needMethod'); return; }
-    const minAmount = Number(state.config.minAmount) || 1;
+    const minAmount = currentMinAmount();
     if (!amount || amount < minAmount) {
       noteEl.textContent = t('modal.needAmount', { sym: sym(), n: minAmount });
       return;
@@ -389,7 +400,7 @@ window.addEventListener('langchange', () => {
   if (state.config) {
     const first = $('payProvider').querySelector('option[value=""]');
     if (first) first.textContent = t('modal.selectMethod');
-    $('payAmount').placeholder = t('modal.minAmount', { sym: sym(), n: state.config.minAmount });
+    $('payAmount').placeholder = t('modal.minAmount', { sym: sym(), n: currentMinAmount() });
   }
   updateProviderUI();
   const submit = $('paySubmit');

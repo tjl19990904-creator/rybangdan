@@ -31,6 +31,20 @@ services:
         sync: false  # 固定随机会话密钥，避免改密码时踢掉所有登录
       - key: PUBLIC_BASE_URL
         value: https://rybangdan.com
+      - key: JNH_API_KEY
+        sync: false  # 嘉年华支付密钥：已落位，待接口规范确认后再接入启用
+      - key: JNH_MERCHANT_ID
+        sync: false  # 商户号
+      - key: JNH_GATE_ID
+        value: "312"  # 多米尼加本地银行转账通道（已实测下单成功）
+      - key: JNH_BANK_CODE_FIELD
+        value: bankCode  # 文档字段名；商户侧示例写 bank_code，实测两者均被平台接受
+      - key: JNH_ENABLED
+        value: "true"  # 已启用：报白、签名、下单、回调端点均已实测通过
+      - key: JNH_API_BASE
+        value: https://api.jnhpay.xyz
+      - key: JNH_CALLBACK_STRICT
+        value: "false"  # 默认兼容两种回调签名口径；确认后可为 true
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
